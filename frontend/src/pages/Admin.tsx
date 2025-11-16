@@ -8,10 +8,14 @@ import './Admin.css';
 export const Admin = () => {
   const [tests, setTests] = useState<Test[]>([]);
   const [users, setUsers] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'tests' | 'users' | 'create'>(
+  const [activeTab, setActiveTab] = useState<'tests' | 'users' | 'create' | 'questions'>(
     'tests'
   );
   const [loading, setLoading] = useState(true);
+  const [editingTest, setEditingTest] = useState<Test | null>(null);
+  const [selectedTestForQuestions, setSelectedTestForQuestions] = useState<string>('');
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [editingQuestion, setEditingQuestion] = useState<any | null>(null);
 
   // Форма создания теста
   const [testForm, setTestForm] = useState({
@@ -36,6 +40,12 @@ export const Admin = () => {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    if (selectedTestForQuestions) {
+      fetchQuestions(selectedTestForQuestions);
+    }
+  }, [selectedTestForQuestions]);
+
   const fetchData = async () => {
     try {
       const [testsData, usersData] = await Promise.all([
@@ -54,8 +64,16 @@ export const Admin = () => {
   const handleCreateTest = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await adminApi.createTest(testForm);
-      toast.success('Тест создан успешно!');
+      if (editingTest) {
+        // Редактирование существующего теста
+        await adminApi.updateTest(editingTest.id, testForm);
+        toast.success('Тест обновлен успешно!');
+        setEditingTest(null);
+      } else {
+        // Создание нового теста
+        await adminApi.createTest(testForm);
+        toast.success('Тест создан успешно!');
+      }
       setTestForm({
         name: '',
         displayName: '',
@@ -65,7 +83,87 @@ export const Admin = () => {
       });
       fetchData();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Ошибка создания теста');
+      toast.error(error.response?.data?.message || 'Ошибка сохранения теста');
+    }
+  };
+
+  const handleEditTest = (test: Test) => {
+    setEditingTest(test);
+    setTestForm({
+      name: test.name || test.displayName,
+      displayName: test.displayName,
+      description: test.description,
+      methodicalRecommendations: test.methodicalRecommendations || '',
+      timeLimit: test.timeLimit || 60,
+    });
+    setActiveTab('create');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingTest(null);
+    setTestForm({
+      name: '',
+      displayName: '',
+      description: '',
+      methodicalRecommendations: '',
+      timeLimit: 60,
+    });
+  };
+
+  const fetchQuestions = async (testId: string) => {
+    try {
+      const response = await testApi.getTest(testId);
+      setQuestions(response.questions || []);
+    } catch (error) {
+      toast.error('Ошибка загрузки вопросов');
+    }
+  };
+
+  const handleEditQuestion = (question: any) => {
+    setEditingQuestion(question);
+    setQuestionForm({
+      testId: question.testId,
+      questionNumber: question.questionNumber,
+      questionText: question.questionText || '',
+      numberOfOptions: question.numberOfOptions,
+      correctAnswer: question.correctAnswer,
+      image: null,
+    });
+  };
+
+  const handleUpdateQuestion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingQuestion) return;
+
+    try {
+      const formData = new FormData();
+      formData.append('questionNumber', questionForm.questionNumber.toString());
+      formData.append('questionText', questionForm.questionText);
+      formData.append('numberOfOptions', questionForm.numberOfOptions.toString());
+      formData.append('correctAnswer', questionForm.correctAnswer.toString());
+      if (questionForm.image) {
+        formData.append('image', questionForm.image);
+      }
+
+      await adminApi.updateQuestion(editingQuestion.id, formData);
+      toast.success('Вопрос обновлен!');
+      setEditingQuestion(null);
+      fetchQuestions(selectedTestForQuestions);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Ошибка обновления вопроса');
+    }
+  };
+
+  const handleDeleteQuestion = async (questionId: string) => {
+    if (!confirm('Вы уверены, что хотите удалить этот вопрос?')) return;
+
+    try {
+      await adminApi.deleteQuestion(questionId);
+      toast.success('Вопрос удален');
+      fetchQuestions(selectedTestForQuestions);
+      fetchData(); // Обновить количество вопросов в тесте
+    } catch (error) {
+      toast.error('Ошибка удаления вопроса');
     }
   };
 
@@ -159,6 +257,12 @@ export const Admin = () => {
             Тесты
           </button>
           <button
+            className={`tab ${activeTab === 'questions' ? 'active' : ''}`}
+            onClick={() => setActiveTab('questions')}
+          >
+            Вопросы
+          </button>
+          <button
             className={`tab ${activeTab === 'create' ? 'active' : ''}`}
             onClick={() => setActiveTab('create')}
           >
@@ -200,6 +304,12 @@ export const Admin = () => {
                           <td>
                             <div className="action-buttons">
                               <button
+                                className="btn btn-sm btn-primary"
+                                onClick={() => handleEditTest(test)}
+                              >
+                                Редактировать
+                              </button>
+                              <button
                                 className="btn btn-sm btn-secondary"
                                 onClick={() => handleClearResults(test.id)}
                               >
@@ -222,10 +332,221 @@ export const Admin = () => {
             </div>
           )}
 
+          {activeTab === 'questions' && (
+            <div className="questions-management">
+              <h2>Управление вопросами</h2>
+              
+              <div className="form-group">
+                <label className="form-label">Выберите тест для просмотра вопросов:</label>
+                <select
+                  className="form-select"
+                  value={selectedTestForQuestions}
+                  onChange={(e) => setSelectedTestForQuestions(e.target.value)}
+                >
+                  <option value="">Выберите тест</option>
+                  {tests.map((test) => (
+                    <option key={test.id} value={test.id}>
+                      {test.displayName} ({test.totalQuestions} вопросов)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedTestForQuestions && questions.length === 0 && (
+                <div className="empty-state">
+                  <p>В этом тесте пока нет вопросов</p>
+                </div>
+              )}
+
+              {selectedTestForQuestions && questions.length > 0 && (
+                <div className="table-container">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>№</th>
+                        <th>Изображение</th>
+                        <th>Текст</th>
+                        <th>Варианты</th>
+                        <th>Правильный</th>
+                        <th>Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {questions.map((question) => (
+                        <tr key={question.id}>
+                          <td>{question.questionNumber}</td>
+                          <td>
+                            {question.imagePath ? (
+                              <img
+                                src={`/uploads/${question.imagePath}`}
+                                alt={`Вопрос ${question.questionNumber}`}
+                                style={{ maxWidth: '100px', maxHeight: '60px', objectFit: 'contain' }}
+                              />
+                            ) : (
+                              <span style={{ color: '#999' }}>Нет</span>
+                            )}
+                          </td>
+                          <td>{question.questionText || '-'}</td>
+                          <td>{question.numberOfOptions}</td>
+                          <td>{question.correctAnswer}</td>
+                          <td>
+                            <div className="action-buttons">
+                              <button
+                                className="btn btn-sm btn-primary"
+                                onClick={() => handleEditQuestion(question)}
+                              >
+                                Редактировать
+                              </button>
+                              <button
+                                className="btn btn-sm btn-danger"
+                                onClick={() => handleDeleteQuestion(question.id)}
+                              >
+                                Удалить
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {editingQuestion && (
+                <div className="edit-question-form">
+                  <h3>Редактировать вопрос №{editingQuestion.questionNumber}</h3>
+                  <form onSubmit={handleUpdateQuestion} className="admin-form">
+                    <div className="form-group">
+                      <label className="form-label">Номер вопроса</label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        value={questionForm.questionNumber}
+                        onChange={(e) =>
+                          setQuestionForm({
+                            ...questionForm,
+                            questionNumber: parseInt(e.target.value),
+                          })
+                        }
+                        min="1"
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Текст вопроса (опционально)</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={questionForm.questionText}
+                        onChange={(e) =>
+                          setQuestionForm({
+                            ...questionForm,
+                            questionText: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">
+                        Изменить изображение (оставьте пустым, чтобы сохранить текущее)
+                      </label>
+                      <input
+                        type="file"
+                        className="form-input"
+                        accept="image/*"
+                        onChange={(e) =>
+                          setQuestionForm({
+                            ...questionForm,
+                            image: e.target.files?.[0] || null,
+                          })
+                        }
+                      />
+                      {editingQuestion.imagePath && (
+                        <div style={{ marginTop: '10px' }}>
+                          <p style={{ fontSize: '14px', color: '#666' }}>Текущее изображение:</p>
+                          <img
+                            src={`/uploads/${editingQuestion.imagePath}`}
+                            alt="Текущее"
+                            style={{ maxWidth: '200px', marginTop: '10px', border: '2px solid #ddd', borderRadius: '8px' }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Количество вариантов ответа</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={questionForm.numberOfOptions}
+                          onChange={(e) =>
+                            setQuestionForm({
+                              ...questionForm,
+                              numberOfOptions: parseInt(e.target.value),
+                            })
+                          }
+                          min="2"
+                          max="8"
+                          required
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label className="form-label">Правильный ответ</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={questionForm.correctAnswer}
+                          onChange={(e) =>
+                            setQuestionForm({
+                              ...questionForm,
+                              correctAnswer: parseInt(e.target.value),
+                            })
+                          }
+                          min="1"
+                          max={questionForm.numberOfOptions}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <button type="submit" className="btn btn-primary">
+                        Сохранить изменения
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => setEditingQuestion(null)}
+                      >
+                        Отменить
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'create' && (
             <div className="create-section">
               <div className="form-section">
-                <h2>Создать новый тест</h2>
+                <h2>{editingTest ? 'Редактировать тест' : 'Создать новый тест'}</h2>
+                {editingTest && (
+                  <div className="edit-notice">
+                    <p>✏️ Редактируется: <strong>{editingTest.displayName}</strong></p>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-secondary"
+                      onClick={handleCancelEdit}
+                    >
+                      Отменить редактирование
+                    </button>
+                  </div>
+                )}
                 <form onSubmit={handleCreateTest} className="admin-form">
                   <div className="form-group">
                     <label className="form-label">
@@ -308,8 +629,18 @@ export const Admin = () => {
                   </div>
 
                   <button type="submit" className="btn btn-primary">
-                    Создать тест
+                    {editingTest ? 'Сохранить изменения' : 'Создать тест'}
                   </button>
+                  {editingTest && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleCancelEdit}
+                      style={{ marginLeft: '10px' }}
+                    >
+                      Отменить
+                    </button>
+                  )}
                 </form>
               </div>
 

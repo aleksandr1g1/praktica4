@@ -18,16 +18,44 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(helmet());
-app.use(cors());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "http://localhost:5000", "http://localhost:3000", "http://localhost:5173"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+    },
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+}));
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5000'],
+  credentials: true,
+}));
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Static files for uploaded images
+// Static files for uploaded images (with CORS headers)
+const uploadsPath = path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads');
+console.log('📁 Статические файлы загружаются из:', uploadsPath);
+
 app.use(
   '/uploads',
-  express.static(path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads'))
+  (req, res, next) => {
+    console.log('🖼️  Запрос изображения:', req.path);
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    next();
+  },
+  express.static(uploadsPath, {
+    setHeaders: (res, filePath) => {
+      res.set('Cache-Control', 'public, max-age=31536000');
+      console.log('✅ Отдаю файл:', filePath);
+    },
+  })
 );
 
 // API Routes

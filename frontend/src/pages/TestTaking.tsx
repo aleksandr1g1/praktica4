@@ -149,8 +149,24 @@ export const TestTaking = () => {
           {currentQuestion.imagePath && (
             <div className="question-image">
               <img
-                src={`/api/uploads/${currentQuestion.imagePath}`}
+                src={`/uploads/${currentQuestion.imagePath}`}
                 alt={`Вопрос ${currentQuestion.questionNumber}`}
+                onLoad={() => {
+                  console.log('✅ Изображение загружено:', currentQuestion.imagePath);
+                }}
+                onError={(e) => {
+                  console.error('❌ Ошибка загрузки изображения:', currentQuestion.imagePath);
+                  console.error('URL:', `/uploads/${currentQuestion.imagePath}`);
+                  // Не скрываем изображение, чтобы показать что-то пользователю
+                  e.currentTarget.style.border = '2px solid red';
+                  e.currentTarget.alt = `Ошибка загрузки: ${currentQuestion.imagePath}`;
+                }}
+                style={{ 
+                  maxWidth: '100%',
+                  height: 'auto',
+                  display: 'block',
+                  margin: '0 auto'
+                }}
               />
             </div>
           )}
